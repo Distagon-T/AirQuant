@@ -17,8 +17,8 @@ function [output, outvoxdim] = ReorientVolume(source, meta)
     %   * outvoxdim: `OPTIONAL` output voxel dimensions for LPS reorientation.
     %
 
-    % get affine matrix
-    aff_raw_RAS_loaded = meta.Transform.T;
+    % get affine matrix (take transpose of loaded affine)
+    aff_raw_RAS_loaded = meta.Transform.T';
     % set values that are basically 0 to 0
     zero_tol = aff_raw_RAS_loaded < 1e-6 & aff_raw_RAS_loaded > -1e-6;
     aff_raw_RAS = aff_raw_RAS_loaded;
