@@ -16,9 +16,19 @@ clear; clc; close all;
 % =========================================================================
 % 1. 路径配置（按需修改）
 % =========================================================================
-CT_INPUT_DIR      = 'E:\DICOM\2026-04-nifti\';             % 患者 CT 文件夹
-AIRWAY_INPUT_DIR  = 'E:\DICOM\2026-04-Airway_out_batch\';  % 气道掩膜文件夹
-OUTPUT_DIR        = 'E:\DICOM\2026-04-Airway_metrics_tmp\';    % 输出目录
+% 路径通过环境变量配置（避免硬编码个人路径）；未设置时使用当前目录下的默认子目录
+CT_INPUT_DIR      = getenv('AQ_CT_INPUT_DIR');       % 患者 CT 文件夹
+if isempty(CT_INPUT_DIR)
+    CT_INPUT_DIR = fullfile(pwd, 'ct_input');
+end
+AIRWAY_INPUT_DIR  = getenv('AQ_AIRWAY_INPUT_DIR');   % 气道掩膜文件夹
+if isempty(AIRWAY_INPUT_DIR)
+    AIRWAY_INPUT_DIR = fullfile(pwd, 'airway_input');
+end
+OUTPUT_DIR        = getenv('AQ_OUTPUT_DIR');         % 输出目录
+if isempty(OUTPUT_DIR)
+    OUTPUT_DIR = fullfile(pwd, 'output');
+end
 
 % 测量参数
 KERNEL_SIZES   = [0, 3, 5, 7];   % 自愈合断桥内核

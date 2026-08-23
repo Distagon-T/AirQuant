@@ -17,8 +17,15 @@ clear; clc; close all;
 % =========================================================================
 % 1. 路径配置
 % =========================================================================
-METRICS_DIR   = 'E:\DICOM\2026-05-Airway_metrics_tmp';   % batch_airway_quant 输出目录
-FEATURES_DIR  = 'E:\DICOM\2026-05-Airway_features';      % 本脚本输出目录
+% 路径通过环境变量配置（避免硬编码个人路径）；未设置时使用当前目录下的默认子目录
+METRICS_DIR   = getenv('AQ_METRICS_DIR');   % batch_airway_quant 输出目录
+if isempty(METRICS_DIR)
+    METRICS_DIR = fullfile(pwd, 'metrics');
+end
+FEATURES_DIR  = getenv('AQ_FEATURES_DIR');  % 本脚本输出目录
+if isempty(FEATURES_DIR)
+    FEATURES_DIR = fullfile(pwd, 'features');
+end
 
 % 测量参数（与 batch_airway_quant 保持一致）
 KERNEL_SIZES   = [0, 3, 5, 7];
