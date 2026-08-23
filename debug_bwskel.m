@@ -1,0 +1,20 @@
+%% 测试 bwskel 单独是否崩溃（不加载 CT）
+clear; clc; close all;
+SEG_FILE = 'E:\DICOM\2026-04-Airway_out_batch\20130305_CHEN RONG_CT_1.2.840.113619.2.55.3.1678396440.5697.1362438466.323\20130305_CHEN RONG_CT_1.2.840.113619.2.55.3.1678396440.5697.1362438466.323_airway.nii.gz';
+disp('STEP1: load seg');
+meta_seg = niftiinfo(SEG_FILE);
+seg_raw = logical(niftiread(meta_seg));
+disp('STEP2: clean seg');
+seg_base = imfill(seg_raw, 'holes');
+CC = bwconncomp(seg_base, 26);
+numPixels = cellfun(@numel, CC.PixelIdxList);
+[~, idx_max] = max(numPixels);
+seg_clean = false(size(seg_base));
+seg_clean(CC.PixelIdxList{idx_max}) = true;
+seg_base = seg_clean;
+fprintf('   seg voxels: %d\n', nnz(seg_base));
+disp('STEP3: bwskel (no CT loaded)');
+tic;
+skel = bwskel(seg_base, 'MinBranchLength', 15);
+fprintf('   bwskel done in %.2f s, skel voxels: %d\n', toc, nnz(skel));
+disp('STEP4: DONE');
