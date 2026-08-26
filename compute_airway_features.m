@@ -75,11 +75,16 @@ for idx = 1:numel(patient_names)
     info_file = fullfile(pdir, [patient, '_airquant_info.json']);
 
     % 读取 info JSON（拿 CT / 掩膜路径 和 Pi10）
-    ct_file = ''; seg_file = ''; Pi10 = NaN;
+    ct_file = ''; seg_file = ''; skel_file = ''; Pi10 = NaN;
     if exist(info_file, 'file')
         info = jsondecode(fileread(info_file));
         if isfield(info, 'selected_ct'),  ct_file  = info.selected_ct;  end
         if isfield(info, 'airway_mask'),  seg_file = info.airway_mask;  end
+        % AirQuant 已生成的骨架（batch_airway_quant 保存，拓扑已验证）
+        % densitometry 优先用它构建 ClinicalAirways，避免 bwskel 生成异常拓扑
+        if isfield(info, 'skel_output') && ~isempty(info.skel_output)
+            skel_file = info.skel_output;
+        end
         % Pi10 强制为标量 double（JSON 中可能为 []/null/字符串，否则表拼接类型不一致崩溃）
         if isfield(info, 'Pi10')
             p10 = info.Pi10;
@@ -210,8 +215,8 @@ for idx = 1:numel(patient_names)
 
     if COMPUTE_DENSITOMETRY && ~isempty(ct_file) && ~isempty(seg_file)
         try
-            wall_stats = compute_wall_densitometry(ct_file, seg_file, KERNEL_SIZES, ...
-                WALL_SEARCH_MM, FWHM_BIN_MM, MIN_TUBE_PTS);
+            wall_stats = compute_wall_densitometry(ct_file, seg_file, skel_file, ...
+                KERNEL_SIZES, WALL_SEARCH_MM, FWHM_BIN_MM, MIN_TUBE_PTS);
             if ~isempty(wall_stats)
                 f.wall_hu_mean = wall_stats.hu_mean_all;
                 f.wall_hu_std  = wall_stats.hu_std_all;
@@ -284,10 +289,10 @@ end
 % =========================================================================
 % 局部函数：管壁密度/纹理 + PCA
 % =========================================================================
-function out = compute_wall_densitometry(ct_file, seg_file, kernel_sizes, ...
-        wall_search_mm, fwhm_bin_mm, min_tube_pts)
-    % 重新加载 CT + 掩膜，裁剪到气道包围盒（降低内存），构建 AQnet，
-    % 在 FWHM 测量中收集管壁 HU 统计
+function out = compute_wall_densitometry(ct_file, seg_file, skel_file, ...
+        kernel_sizes, wall_search_mm, fwhm_bin_mm, min_tube_pts)
+    % 重新加载 CT + 掩膜，构建 AQnet（优先用 AirQuant 已存骨架 skel_file，
+    % 失败/缺失时退回 bwskel 自愈合），在 FWHM 测量中收集管壁 HU 统计
     out = [];
 
     meta_CT = niftiinfo(ct_file);
@@ -306,30 +311,47 @@ function out = compute_wall_densitometry(ct_file, seg_file, kernel_sizes, ...
     seg_clean(CC.PixelIdxList{idx_max}) = true;
     seg_base = seg_clean;
 
-    % 自愈合骨架 + AQnet
     AQnet = [];
-    for k = kernel_sizes
-        if k == 0
-            seg_for_skel = seg_base;
-        else
-            se = strel('cube', k);
-            seg_for_skel = imopen(seg_base, se);
-            CC_skel = bwconncomp(seg_for_skel, 26);
-            numPixels_skel = cellfun(@numel, CC_skel.PixelIdxList);
-            [~, idx_skel] = max(numPixels_skel);
-            temp = false(size(seg_for_skel));
-            temp(CC_skel.PixelIdxList{idx_skel}) = true;
-            seg_for_skel = temp;
-        end
-        skel_candidate = bwskel(seg_for_skel, 'MinBranchLength', 15);
+    % 优先：使用 AirQuant 已生成、拓扑已验证的骨架（skel_output / PTKskel）
+    if ~isempty(skel_file) && exist(skel_file, 'file')
         try
-            net = ClinicalAirways(skel_candidate, ...
-                'source', source, 'header', meta_CT, 'seg', seg_base, ...
-                'fillholes', 0, 'largestCC', 1, ...
-                'plane_sample_sz', 0.5, 'spline_sample_sz', 0.5);
-            AQnet = net;
-            break;
+            meta_skel = niftiinfo(skel_file);
+            skel_existing = logical(niftiread(meta_skel));
+            if any(skel_existing(:))
+                AQnet = ClinicalAirways(skel_existing, ...
+                    'source', source, 'header', meta_CT, 'seg', seg_base, ...
+                    'fillholes', 0, 'largestCC', 1, ...
+                    'plane_sample_sz', 0.5, 'spline_sample_sz', 0.5);
+            end
         catch
+            AQnet = [];
+        end
+    end
+    % 退回：bwskel 自愈合骨架
+    if isempty(AQnet)
+        for k = kernel_sizes
+            if k == 0
+                seg_for_skel = seg_base;
+            else
+                se = strel('cube', k);
+                seg_for_skel = imopen(seg_base, se);
+                CC_skel = bwconncomp(seg_for_skel, 26);
+                numPixels_skel = cellfun(@numel, CC_skel.PixelIdxList);
+                [~, idx_skel] = max(numPixels_skel);
+                temp = false(size(seg_for_skel));
+                temp(CC_skel.PixelIdxList{idx_skel}) = true;
+                seg_for_skel = temp;
+            end
+            skel_candidate = bwskel(seg_for_skel, 'MinBranchLength', 15);
+            try
+                AQnet = ClinicalAirways(skel_candidate, ...
+                    'source', source, 'header', meta_CT, 'seg', seg_base, ...
+                    'fillholes', 0, 'largestCC', 1, ...
+                    'plane_sample_sz', 0.5, 'spline_sample_sz', 0.5);
+                break;
+            catch
+                AQnet = [];
+            end
         end
     end
     if isempty(AQnet)
